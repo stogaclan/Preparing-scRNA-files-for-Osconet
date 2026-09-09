@@ -1,0 +1,176 @@
+library(Seurat)
+library(Matrix)
+
+# Splits the merged Matson et al. (2022) object (GSE172167) into per-sample
+# count matrices, organised by replicate, ready for 1-Recluster.R.
+#
+# Only the raw RNA counts and the authors' cell type annotations are taken.
+# Their integrated assay, reductions and clustering are discarded - Lucy's
+# pipeline clusters each sample itself.
+
+
+# first donwload the " GSE172167_SCI_all_nuclei.rds.gz " file from GSE172167. 
+# uncompress using " gunzip GSE172167_SCI_all_nuclei.rds.gz " 
+
+####################################################################
+##                          EDIT SECTION                          ##
+####################################################################
+
+# Folder containing GSE172167_SCI_all_nuclei.rds (decompressed)
+inDir <- "~/osconet/matson_data_handling"
+
+rdsFile <- "GSE172167_SCI_all_nuclei.rds"
+
+# Where the per-replicate folders will be written
+outDir <- "~/osconet/processed_raw_files/Matson_2022"
+
+# Sample IDs (orig.ident) for the conditions we need.
+#   Uninjured : A-45 (3400), A-46 (3813), A-48 (3420)
+#   1wpi      : C-41 (4342), C-42 (6162), C-44 (3336)
+#
+# Replicates are grouped a-a, b-b, c-c following the GEO sample titles
+# (Uninjured_a/b/c, 1wpi_a/b/c). These are NOT paired animals - the
+# grouping is organisational only. Each sample is clustered independently.
+
+replicates <- list(
+  replicate_1 = c(uninjured = "A-45", wpi1 = "C-41"),
+  replicate_2 = c(uninjured = "A-46", wpi1 = "C-42"),
+  replicate_3 = c(uninjured = "A-48", wpi1 = "C-44")
+)
+
+expected <- c("A-45" = 3400, "A-46" = 3813, "A-48" = 3420,
+              "C-41" = 4342, "C-42" = 6162, "C-44" = 3336)
+
+# Author metadata columns to carry through to the split files.
+# These are the cell type annotations - useful downstream, and not
+# available for the zebrafish datasets.
+keepMeta <- c("refined_clusters", "coarse_clusters", "mid_level_clusters",
+              "condition", "percent.mito")
+
+####################################################################
+##                  Do not modify after this line                 ##
+####################################################################
+
+inDir  <- path.expand(inDir)
+outDir <- path.expand(outDir)
+
+# ---- load --------------------------------------------------------
+
+message("Reading ", rdsFile, " (large file, allow a few minutes)...")
+matson <- readRDS(file.path(inDir, rdsFile))
+
+if (!inherits(matson, "Seurat")) stop("Not a Seurat object")
+
+if (as.integer(substr(as.character(Version(matson)), 1, 1)) < 5) {
+  message("Updating object to Seurat v5...")
+  matson <- UpdateSeuratObject(matson)
+}
+
+ds   <- matson[["RNA"]]$counts
+meta <- matson@meta.data
+
+message("Counts: ", nrow(ds), " genes x ", ncol(ds), " cells")
+
+# ---- checks ------------------------------------------------------
+
+message("\n--- checks ---")
+
+# are these raw integer counts?
+isInt <- all(ds@x == floor(ds@x))
+message("Counts are integers: ", isInt)
+if (!isInt) warning("Counts are not integers - these may not be raw UMI counts")
+
+# do column sums match the recorded library size?
+if ("nCount_RNA" %in% colnames(meta)) {
+  agree <- all(abs(colSums(ds) - meta$nCount_RNA) < 1e-6)
+  message("colSums(counts) matches nCount_RNA: ", agree)
+}
+
+# mitochondrial genes present under the mouse naming convention?
+nMT <- length(grep("^mt-", rownames(ds), value = TRUE))
+message("Mitochondrial genes matched by '^mt-': ", nMT)
+if (nMT == 0) warning("No mitochondrial genes matched '^mt-'")
+
+# has the author already filtered cells?
+detected <- meta$nFeature_RNA
+message("Detected genes per cell - min: ", min(detected),
+        "  median: ", median(detected),
+        "  max: ", max(detected))
+message("Cells at or below 200 features: ", sum(detected <= 200))
+message("Cells at or above 6000 features: ", sum(detected >= 6000))
+message("")
+message("NOTE: this matrix is the authors' filtered cell set. Set")
+message("      runQC <- FALSE in 1-Recluster.R for these samples, and")
+message("      record the asymmetry with the zebrafish in the handover note.")
+
+# condition coding here differs from the separate meta.txt file - print it
+message("\n--- sample map ---")
+print(table(meta$orig.ident, meta$condition))
+
+# ---- split and write ---------------------------------------------
+
+summaryTab <- data.frame()
+
+for (rep in names(replicates)) {
+  
+  repDir <- file.path(outDir, rep)
+  dir.create(repDir, recursive = TRUE, showWarnings = FALSE)
+  message("\n=== ", rep, " ===")
+  
+  for (cond in names(replicates[[rep]])) {
+    
+    sample <- replicates[[rep]][[cond]]
+    
+    keep    <- meta$orig.ident == sample
+    sub     <- ds[, keep]
+    subMeta <- meta[keep, intersect(keepMeta, colnames(meta)), drop = FALSE]
+    
+    message(sprintf("  %-10s %-6s %5d cells (expected %d)",
+                    cond, sample, ncol(sub), expected[[sample]]))
+    
+    if (ncol(sub) == 0) {
+      stop("No cells matched orig.ident '", sample, "'")
+    }
+    if (ncol(sub) != expected[[sample]]) {
+      warning("Cell count mismatch for ", sample, " - resolve before proceeding")
+    }
+    
+    saveRDS(sub,     file = file.path(repDir, paste0(sample, "_counts.rds")))
+    saveRDS(subMeta, file = file.path(repDir, paste0(sample, "_authormeta.rds")))
+    
+    summaryTab <- rbind(summaryTab, data.frame(
+      replicate = rep, condition = cond, sample = sample,
+      cells = ncol(sub), genes = nrow(sub),
+      path = file.path(repDir, paste0(sample, "_counts.rds"))
+    ))
+  }
+}
+
+message("\nDone.\n")
+print(summaryTab)
+
+write.csv(summaryTab, file = file.path(outDir, "sample_manifest.csv"),
+          row.names = FALSE)
+
+rm(matson, ds); gc()
+
+
+####################################################################
+##  Next step
+####################################################################
+#
+#   Matson_2022/replicate_1/A-45_counts.rds
+#                           A-45_authormeta.rds
+#                           C-41_counts.rds
+#                           C-41_authormeta.rds
+#   ... likewise for replicate_2 and replicate_3
+#
+# In 1-Recluster.R, for each of the six samples:
+#
+#   case       <- 'MouseUninjA45'
+#   dataDir    <- 'processed_raw_files/Matson_2022/replicate_1'
+#   outDir     <- 'processed_raw_files/Matson_2022/replicate_1/seurat_objects'
+#   countsRds  <- 'A-45_counts.rds'      # comment out h5File and mtxPrefix
+#   authorMeta <- 'A-45_authormeta.rds'
+#   runQC      <- FALSE                  # already filtered by the authors
+#   mtPattern  <- '^mt-'                 # correct for mouse
