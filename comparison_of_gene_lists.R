@@ -136,6 +136,11 @@ venn.diagram(
   filename = vennFile,
   imagetype = "png",
   height = 1800, width = 2200, resolution = 300,
+  # fixed, equal circles: by default venn.diagram scales each circle to its
+  # set size and shifts the overlap to be area-proportional, which makes
+  # diagrams from different datasets hard to compare side by side
+  scaled = FALSE,
+  euler.d = FALSE,
   fill = c("#7fb3d5", "#f1948a"),
   alpha = 0.6,
   lwd = 1,
