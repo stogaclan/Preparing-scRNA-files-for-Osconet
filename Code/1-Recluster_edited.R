@@ -30,7 +30,7 @@ recluster <- function(ds) {
   # CHANGED FOR SEURAT V5: Explicitly added dims and reduction parameters to FindNeighbors, 
   # and dims to RunTSNE to ensure proper data usage across v5 assay structures.
   pbmc_MGH <- FindNeighbors(object = pbmc_MGH, reduction = "pca", dims = 1:10)
-  pbmc_MGH <- FindClusters(object = pbmc_MGH, resolution = 0.5)
+  pbmc_MGH <- FindClusters(object = pbmc_MGH, resolution = 0.8)
   pbmc_MGH <- RunTSNE(object = pbmc_MGH, dims = 1:10)
   pbmc_MGH <- RunUMAP(object = pbmc_MGH, dims = 1:10)
   
