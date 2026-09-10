@@ -1,0 +1,54 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(data.table)
+```
+
+
+dput both cav and hong check data structure is identical
+
+Ok the issue was the cav data has a named column with the genes where is the hong data just had the genes as an index colum ergo as row.names. Small change fixes that.
+
+```{r}
+cav <- read.csv("/home/olliecottrell/Documents/Apps/OscoNet_Ximena/Cavone2021/Data/her4_les.tsv", sep='\t')
+
+cav_short <- fread("/home/olliecottrell/Documents/Apps/OscoNet_Ximena/Cavone2021/Data/her4_les.tsv", select=1:100)
+
+hong <- read.csv("/home/olliecottrell/Documents/Apps/OscoNet_Ximena/Cavone2021/Data/GSE122743_expression_matrix.normalizedCounts.txt", sep='\t')
+
+hong_short <- fread("/home/olliecottrell/Documents/Apps/OscoNet_Ximena/Cavone2021/Data/GSE122743_expression_matrix.normalizedCounts.txt", select=1:100)
+
+row.names(cav) <- cav$X
+cav$X <- NULL  # Remove the 'X' column
+
+
+head(cav)
+head(hong)
+
+head(cav[0])
+
+```
+
+dput both cav and hong check data structure is identical
+
+
+
+```{r}
+options(max.print = 10000)
+
+norm <- read.csv('/home/olliecottrell/Documents/Apps/FullOscoNet-master/BreastCancer/Hong2019/Data/GSE122743_expression_matrix.normalizedCounts.txt', sep='\t')
+
+colnames(norm)
+
+normCols <- colnames(norm)
+head(normCols, n=10000)
+
+length(normCols)
+
+ncol(norm)
+nrow(norm)
+```
+
